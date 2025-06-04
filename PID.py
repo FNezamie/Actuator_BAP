@@ -49,7 +49,7 @@ if __name__ == '__main__':
 
     # Frame dimensions and timing
     FRAME_HEIGHT = 640
-    FRAME_RATE = 90
+    FRAME_RATE = 30
     shared_obj.LOOP_DT_TARGET = 1.0 / FRAME_RATE
 
     # Compute vertical FoV
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     vfov_rad = 2 * math.atan(SENSOR_HEIGHT_MM / (2 * FOCAL_LENGTH_MM))
     vfov_deg = math.degrees(vfov_rad)
     deg_per_px = vfov_deg / FRAME_HEIGHT
-    setpoint = 0
+    setpoint = FRAME_HEIGHT / 2 # REMOVE: should be 0
 
     # PID and servo settings
     SERVO_MIN, SERVO_MAX = -90, 90
@@ -120,8 +120,8 @@ if __name__ == '__main__':
                 measurement_y = None
             else:
                 # camera_preview_output, measurement_y = proc_naive.process_frames(camera_prev_gray, current_gray_frame, current_frame)
-                measurement_y, camera_preview_output, _ = proc_color.process_frames(camera_prev_gray, current_gray_frame, current_frame, color_hues["Rose"], hue_tolerance=10)
-                # measurement_y, camera_preview_output, _ = iter_machine.next(), current_frame, None
+                # measurement_y, camera_preview_output, _ = proc_color.process_frames(camera_prev_gray, current_gray_frame, current_frame, color_hues["Rose"], hue_tolerance=10)
+                measurement_y, camera_preview_output, _ = iter_machine.next(), current_frame, None
 
             print(f"info: y: {measurement_y}")
             camera_prev_gray = current_gray_frame
@@ -144,12 +144,13 @@ if __name__ == '__main__':
 
             camera_prev_time = camera_curr_time
 
+            REMOVE = 4, 1
             # 5) PID update and servo write when active
             if measurement_y is not None:
                 if abs(setpoint - measurement_y) > 0 and measurement_y >= FRAME_HEIGHT / 8:
                     cv.line(current_frame, (0, int(setpoint)), (current_frame.shape[1], int(setpoint)), (0, 0, 255), 2)
                     error = setpoint - measurement_y
-                    P = 0.25
+                    P = REMOVE[1]
                     delta_deg = -P * error * deg_per_px
                 else:
                     delta_deg = 0.0
