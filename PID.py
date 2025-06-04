@@ -7,87 +7,11 @@ import cv2 as cv
 
 import processor.algorithms.colored_frame_difference as proc_color
 import processor.algorithms.frame_difference as proc_naive
+import processor.algorithms.dummy_algorithm as dummy
 import pantilthat as pth
 
 from processor.camera import CameraStream, SharedObject
 from threading import Thread
-
-
-class PID:
-    def __init__(self, kp, ki, kd, setpoint, deg_per_px,
-                 tau=0.02, max_dt=0.1, integral_limit=None):
-        # PID gains
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
-
-        # Desired setpoint in pixels (center of image height in camera frame)
-        self.setpoint = setpoint
-
-        # Conversion factor (amount of degrees a pixel represents)
-        self.deg_per_px = deg_per_px
-
-        # Derivative smoothing and dt cap
-        self.tau = tau
-        self.max_dt = max_dt
-
-        # Anti-windup limit for integral (in pixel-seconds)
-        self.integral_limit = integral_limit
-
-        # Internal state
-        self.prev_time = time.monotonic()
-        self.integral = 0.0
-        self.deriv = 0.0
-        self.prev_error = None
-        self.last_error = 0.0
-        self.last_dt = 1e-6
-
-    def update(self, measurement):
-        now = time.monotonic()
-        dt = max(1e-6, min(now - self.prev_time, self.max_dt))
-
-        # Compute error in pixels
-        error = self.setpoint - measurement
-
-        # Integrate with clamping
-        integral_candidate = self.integral + error * dt
-        if self.integral_limit is not None:
-            integral_candidate = max(-self.integral_limit,
-                                     min(self.integral_limit,
-                                         integral_candidate))
-        self.integral = integral_candidate
-
-        # Derivative on error, low-pass filtered
-        if self.prev_error is None:
-            self.deriv = 0.0
-        else:
-            raw_deriv = (error - self.prev_error) / dt
-            alpha = dt / (self.tau + dt)
-            self.deriv = alpha * raw_deriv + (1 - alpha) * self.deriv
-
-        # PID terms
-        P = self.kp * error
-        I = self.ki * self.integral
-        D = self.kd * self.deriv
-        output_px = P + I + D
-
-        # Save state
-        self.prev_time = now
-        self.prev_error = error
-        self.last_error = error
-        self.last_dt = dt
-
-        # Convert pixel-output to degrees
-        return -output_px * self.deg_per_px
-
-    def reset(self):
-        # Clear integral and derivative history
-        self.integral = 0.0
-        self.deriv = 0.0
-        self.prev_error = None
-        self.prev_time = time.monotonic()
-        self.last_error = 0.0
-        self.last_dt = 1e-6
 
 
 def clamp(value, vmin, vmax):
@@ -124,54 +48,32 @@ if __name__ == '__main__':
     camera.start()
 
     # Frame dimensions and timing
-    FRAME_HEIGHT = 1332 / 2
-    FRAME_RATE = 120.0
+    FRAME_HEIGHT = 640
+    FRAME_RATE = 90
     shared_obj.LOOP_DT_TARGET = 1.0 / FRAME_RATE
-
-    # Initialize and start thread for tilting
-    tilt_thread = Thread(target=tilt, args=(shared_obj,), daemon=True)
-    tilt_thread.start()
 
     # Compute vertical FoV
     SENSOR_HEIGHT_MM = 4.712
-    FOCAL_LENGTH_MM = 25
+    FOCAL_LENGTH_MM = 35
     vfov_rad = 2 * math.atan(SENSOR_HEIGHT_MM / (2 * FOCAL_LENGTH_MM))
     vfov_deg = math.degrees(vfov_rad)
     deg_per_px = vfov_deg / FRAME_HEIGHT
+    setpoint = 0
 
     # PID and servo settings
-    pid_setpoint = FRAME_HEIGHT / 2
     SERVO_MIN, SERVO_MAX = -90, 90
-    I_LIMIT = SERVO_MAX / 0.10
-
-    pid = PID(
-        kp=0.5,
-        ki=0.0,
-        kd=0.0,
-        setpoint=pid_setpoint,
-        deg_per_px=deg_per_px,
-        tau=0.02,
-        max_dt=0.1,
-        integral_limit=I_LIMIT
-    )
 
     # Initialize PanTilt HAT
+    current_tilt = -20
     try:
         pth.servo_enable(2, True)
-        current_tilt = shared_obj.current_tilt
-        # pth.tilt(int(current_tilt))
+        pth.tilt(int(current_tilt))
         print("[INFO] Tilt servo initialized.")
 
     except Exception as e:
         print(f"[ERROR] Could not initialize PanTilt HAT: {e}")
         camera.stop()
         exit()
-
-    # Tracking control variables
-    PIXEL_DEADBAND = 31     # px
-    MISS_LIMIT = 120        # frames of missed detection before deactivating
-    miss_count = 0
-    pid_active = False
 
     # Camera variables
     # Measurement
@@ -203,8 +105,12 @@ if __name__ == '__main__':
     }
 
     print("[INFO] Starting tracking loop. Press Ctrl+C to exit.")
+    pth.idle_timeout(FRAME_RATE)
+    iter_machine = dummy.DummyMeasurements()
     try:
         while True:
+            loop_start = time.monotonic()
+
             # 1) Read frame
             current_frame = shared_obj.frame
             current_gray_frame = cv.cvtColor(current_frame, cv.COLOR_RGB2HSV) if current_frame is not None else None
@@ -215,6 +121,7 @@ if __name__ == '__main__':
             else:
                 # camera_preview_output, measurement_y = proc_naive.process_frames(camera_prev_gray, current_gray_frame, current_frame)
                 measurement_y, camera_preview_output, _ = proc_color.process_frames(camera_prev_gray, current_gray_frame, current_frame, color_hues["Rose"], hue_tolerance=10)
+                # measurement_y, camera_preview_output, _ = iter_machine.next(), current_frame, None
 
             print(f"info: y: {measurement_y}")
             camera_prev_gray = current_gray_frame
@@ -237,36 +144,24 @@ if __name__ == '__main__':
 
             camera_prev_time = camera_curr_time
 
-            # 2.2) Preview frame
-            if current_frame is not None:
-                # camera_preview_output = cv.cvtColor(camera_preview_output, cv.COLOR_RGB2BGR)
-                cv.imshow(f'[{recording_id}] [Live] Processed Frame', current_frame)
-
-            # 3) Miss-count logic instead of immediate reset on single-frame dropout
-            if measurement_y is None:
-                miss_count += 1
-            else:
-                miss_count = 0
-
-            # 4) State-machine with MISS_LIMIT
-            if miss_count >= MISS_LIMIT and pid_active:
-                pid_active = False
-            elif miss_count == 0 and not pid_active and measurement_y is not None:
-                pid.reset()
-                pid_active = True
-
             # 5) PID update and servo write when active
-            if pid_active and measurement_y is not None:
-                if abs(pid.setpoint - measurement_y) > PIXEL_DEADBAND and measurement_y >= FRAME_HEIGHT / 2:
-                    delta_deg = pid.update(measurement_y)
+            if measurement_y is not None:
+                if abs(setpoint - measurement_y) > 0 and measurement_y >= FRAME_HEIGHT / 8:
+                    cv.line(current_frame, (0, int(setpoint)), (current_frame.shape[1], int(setpoint)), (0, 0, 255), 2)
+                    error = setpoint - measurement_y
+                    P = 0.25
+                    delta_deg = -P * error * deg_per_px
                 else:
                     delta_deg = 0.0
 
                 desired = current_tilt + delta_deg
                 current_tilt = clamp(desired, SERVO_MIN, SERVO_MAX)
-                # pth.tilt(int(round(current_tilt)))
                 print(f"info: tilt: {current_tilt} deg")
-                shared_obj.current_tilt = int(round(current_tilt))
+
+            if current_frame is not None:
+                cv.imshow(f'[{recording_id}] [Live] Processed Frame', current_frame)
+
+            pth.tilt(current_tilt)
 
             # 6) Exit & Store frames
             if cv.waitKey(1) & 0xFF == ord('q'):
@@ -277,7 +172,15 @@ if __name__ == '__main__':
 
                 for i, frame in enumerate(shared_obj.frame_buffer):
                     filename = os.path.join(output_dir, f"frame_{i:06d}.png")
+                    print(f'info: storing frames [{i:06d}/{len(shared_obj.frame_buffer)}]')
                     cv.imwrite(filename, frame)
+                sys.exit(0)
+
+            # Fix FPS
+            elapsed = time.monotonic() - loop_start
+            sleep_time = shared_obj.LOOP_DT_TARGET - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
 
     except KeyboardInterrupt:
         print("\n[INFO] Exiting, disabling tilt servo.")
