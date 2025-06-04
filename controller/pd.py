@@ -1,9 +1,10 @@
-class PID:
-    def __init__(self, kp, ki, kd, setpoint, deg_per_px,
-                 tau=0.02, max_dt=0.1, integral_limit=None):
+import time
+
+class PD:
+    def __init__(self, kp, kd, setpoint, deg_per_px,
+                 tau=0.02, max_dt=0.1):
         # PID gains
         self.kp = kp
-        self.ki = ki
         self.kd = kd
 
         # Desired setpoint in pixels (center of image height in camera frame)
@@ -16,12 +17,9 @@ class PID:
         self.tau = tau
         self.max_dt = max_dt
 
-        # Anti-windup limit for integral (in pixel-seconds)
-        self.integral_limit = integral_limit
 
         # Internal state
         self.prev_time = time.monotonic()
-        self.integral = 0.0
         self.deriv = 0.0
         self.prev_error = None
         self.last_error = 0.0
@@ -34,14 +32,6 @@ class PID:
         # Compute error in pixels
         error = self.setpoint - measurement
 
-        # Integrate with clamping
-        integral_candidate = self.integral + error * dt
-        if self.integral_limit is not None:
-            integral_candidate = max(-self.integral_limit,
-                                     min(self.integral_limit,
-                                         integral_candidate))
-        self.integral = integral_candidate
-
         # Derivative on error, low-pass filtered
         if self.prev_error is None:
             self.deriv = 0.0
@@ -52,9 +42,8 @@ class PID:
 
         # PID terms
         P = self.kp * error
-        I = self.ki * self.integral
         D = self.kd * self.deriv
-        output_px = P + I + D
+        output_px = P + D
 
         # Save state
         self.prev_time = now
