@@ -7,8 +7,6 @@ from picamera2 import Picamera2
 
 
 class SharedObject:
-    current_tilt = -30.0
-
     frame = None
     frame_buffer = []
 
@@ -31,6 +29,7 @@ class CameraStream:
             sensor={'output_size': fastmode['size'], 'bit_depth': fastmode['bit_depth']},
             controls={"FrameDurationLimits": (8333, 8333)}
         )
+        print('[INFO] Current camera height:', self.picam2.camera_configuration()["main"]["size"][0], "px")
         self.picam2.configure(config)
 
     def start(self):
