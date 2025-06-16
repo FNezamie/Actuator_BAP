@@ -7,7 +7,7 @@ class PD:
         self.kp = kp
         self.kd = kd
 
-        # Desired setpoint in pixels (center of image height in camera frame)
+        # Desired setpoint in pixels (centre of image height in camera frame)
         self.setpoint = setpoint
 
         # Conversion factor (amount of degrees a pixel represents)
