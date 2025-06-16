@@ -95,4 +95,4 @@ class EKF_BallTracker:
         A = 8
         y_curr_updated, vy_curr_updated = self.x_hat # These are x_k|k
         a_net_curr_updated = self.g_pix - self.k_drag_pix * vy_curr_updated**2
-        return y_curr_updated + vy_curr_updated * A * self.dt + 0.5 * a_net_curr_updated * A * self.dt**2
+        return y_curr_updated + vy_curr_updated * A * self.dt + 0.5 * a_net_curr_updated * (A * self.dt)**2
