@@ -19,7 +19,7 @@ class EKF_BallTracker:
         # Process noise covariance Q
         self.Q = np.diag([process_noise_y, process_noise_vy]).astype(float)
 
-        # Measurement noise covariance R (scalar for y measurement)
+        # Measurement noise covariance R 
         self.R = float(measurement_noise_y)
 
         # Time step
@@ -40,7 +40,7 @@ class EKF_BallTracker:
         y_prev, vy_prev = self.x_hat
         a_net = self.g_pix - self.k_drag_pix * vy_prev**2 # Simple quadratic drag model
 
-        # State prediction (kinematic update)
+        # State prediction
         y_pred = y_prev + vy_prev * self.dt + 0.5 * a_net * self.dt**2
         vy_pred = vy_prev + a_net * self.dt
         self.x_hat = np.array([y_pred, vy_pred])
@@ -75,7 +75,7 @@ class EKF_BallTracker:
         # State update
         self.x_hat = self.x_hat + (K * y_tilde).flatten()
 
-        # Covariance update (Joseph form recommended for stability, but (I-KH)P is common)
+        # Covariance update 
         self.P = (self._I - K @ self.H) @ self.P
         # Ensure P remains symmetric
         self.P = 0.5 * (self.P + self.P.T)
@@ -92,7 +92,7 @@ class EKF_BallTracker:
         Predicts next-step position based on the current updated state x_hat (k|k).
         This is y_hat (k+1|k).
         """
-        A = 12
+        A = 8
         y_curr_updated, vy_curr_updated = self.x_hat # These are x_k|k
         a_net_curr_updated = self.g_pix - self.k_drag_pix * vy_curr_updated**2
         return y_curr_updated + vy_curr_updated * A * self.dt + 0.5 * a_net_curr_updated * A * self.dt**2
